@@ -1,0 +1,27 @@
+    backbone         output_layer   imagenet_weights
+----------------------------------------------------------
+alexnet                avgpool       IMAGENET1K_V1
+densenet121            features      IMAGENET1K_V1
+densenet161            features      IMAGENET1K_V1
+densenet169            features      IMAGENET1K_V1
+densenet201            features      IMAGENET1K_V1
+efficientnet_v2_s      avgpool       DEFAULT
+efficientnet_v2_m      avgpool       DEFAULT
+efficientnet_v2_l      avgpool       DEFAULT
+inception_v3           dropout       DEFAULT
+maxvit_t               blocks        IMAGENET1K_V1
+mobilenet_v2           features      IMAGENET1K_V2
+mobilenet_v3_small     avgpool       IMAGENET1K_V1
+mobilenet_v3_large     avgpool       IMAGENET1K_V2
+resnet18               avgpool       IMAGENET1K_V1
+resnet34               avgpool       IMAGENET1K_V1
+resnet50               avgpool       IMAGENET1K_V2
+resnet101              avgpool       IMAGENET1K_V2
+resnet152              avgpool       IMAGENET1K_V2
+swin_v2_t              flatten       IMAGENET1K_V1
+swin_v2_s              flatten       IMAGENET1K_V1
+swin_v2_b              flatten       IMAGENET1K_V1
+vgg16                  avgpool       IMAGENET1K_V1
+vgg19                  avgpool       IMAGENET1K_V1
+vit_b_16               encoder       IMAGENET1K_SWAG_E2E_V1
+vit_b_32               encoder       IMAGENET1K_V1
