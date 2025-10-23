@@ -1,4 +1,3 @@
-from PIL import Image
 import albumentations as A
 
 interp = {
@@ -18,14 +17,11 @@ def build_augmentation_sequence(level):
         return data_augmentation_heavy()
 
 def data_augmentation_light(
-        affine_chance=0.20,
         brightness_chance=0.35,
-        blur_chance=0.35,
-        noise_chance=0.05
+        blur_chance=0.35
         ):
 
     transform = A.Compose([
-        #A.Resize (448, 448, interpolation=interp["cv2_INTER_AREA"], p=1),
         A.RandomBrightnessContrast(brightness_limit=(-0.2, 0.15),
                                    contrast_limit=(-0.2, 0.2),
                                    p=brightness_chance),
@@ -42,7 +38,6 @@ def data_augmentation_medium(
         ):
 
     transform = A.Compose([
-        #A.Resize (448, 448, interpolation=interp["cv2_INTER_AREA"], p=1),
         A.Affine(rotate=(-12, 12), p=affine_chance),
         A.RandomBrightnessContrast(brightness_limit=(-0.2, 0.15),
                                    contrast_limit=(-0.2, 0.2),
@@ -61,7 +56,6 @@ def data_augmentation_heavy(
         ):
 
     transform = A.Compose([
-        #A.Resize (448, 448, interpolation=interp["cv2_INTER_AREA"], p=1),
         A.Affine(rotate=(-20, 20), p=affine_chance),
         A.Affine(shear=(-12, 12), p=affine_chance),
         A.ColorJitter(brightness=(0.5, 1.1), contrast=0.25,

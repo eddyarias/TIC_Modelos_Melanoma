@@ -31,9 +31,21 @@ def test_model(test_list, model_folder, batch_size, jobs, model=None, k=5):
         model = load_model(backbone, weights, classes)
         model.to(device)
 
-        # Load weights
-        model.load_state_dict(torch.load(weights, map_location=device))
+        # Load weights - handle both checkpoint format and old state_dict format
         print("\n{} model loaded from: \n{}".format(backbone, weights))
+        try:
+            checkpoint = torch.load(weights, map_location=device)
+            if 'model_state_dict' in checkpoint:
+                # New checkpoint format
+                model.load_state_dict(checkpoint['model_state_dict'])
+                print("✅ Loaded from checkpoint format")
+            else:
+                # Old state_dict format
+                model.load_state_dict(checkpoint)
+                print("✅ Loaded from state_dict format")
+        except Exception as e:
+            print(f"⚠️ Error loading model weights: {e}")
+            raise
 
     # Make Dataloader
     dataset = Image_Dataset(test_list, img_size=image_size)

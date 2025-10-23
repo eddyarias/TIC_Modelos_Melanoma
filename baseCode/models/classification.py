@@ -11,6 +11,10 @@ def print_layers(model):
     return
 
 def load_model(backbone, weights="None", classes=3):
+    # Normalizar nombre (convnext-small -> convnext_small)
+    original_backbone = backbone
+    backbone = backbone.lower().replace('-', '_')
+    weights = weights.lower()
     if backbone == "alexnet":
         if weights == "imagenet":
             model = models.alexnet(weights="IMAGENET1K_V1")
@@ -228,6 +232,43 @@ def load_model(backbone, weights="None", classes=3):
         last_layer = nn.Linear(n_inputs, classes)
         model.heads[0] = last_layer
 
+    elif backbone == "convnext_tiny":
+        if weights == "imagenet":
+            model = models.convnext_tiny(weights="IMAGENET1K_V1")
+        else:
+            model = models.convnext_tiny()
+        # ConvNeXt classifier es Sequential [..., LayerNorm2d, Flatten, Linear]
+        n_inputs = model.classifier[2].in_features
+        last_layer = nn.Linear(n_inputs, classes)
+        model.classifier[2] = last_layer
+
+    elif backbone == "convnext_small":
+        if weights == "imagenet":
+            model = models.convnext_small(weights="IMAGENET1K_V1")
+        else:
+            model = models.convnext_small()
+        n_inputs = model.classifier[2].in_features
+        last_layer = nn.Linear(n_inputs, classes)
+        model.classifier[2] = last_layer
+
+    elif backbone == "convnext_base":
+        if weights == "imagenet":
+            model = models.convnext_base(weights="IMAGENET1K_V1")
+        else:
+            model = models.convnext_base()
+        n_inputs = model.classifier[2].in_features
+        last_layer = nn.Linear(n_inputs, classes)
+        model.classifier[2] = last_layer
+        
+    elif backbone == "convnext_large":
+        if weights == "imagenet":
+            model = models.convnext_large(weights="IMAGENET1K_V1")
+        else:
+            model = models.convnext_large()
+        n_inputs = model.classifier[2].in_features
+        last_layer = nn.Linear(n_inputs, classes)
+        model.classifier[2] = last_layer
+
     elif backbone == "vit_b_32":
         if weights == "imagenet":
             model = models.vit_b_32(weights="IMAGENET1K_V1")
@@ -236,7 +277,10 @@ def load_model(backbone, weights="None", classes=3):
         n_inputs = model.heads[0].in_features
         last_layer = nn.Linear(n_inputs, classes)
         model.heads[0] = last_layer
-        
+
+    else:
+        raise ValueError(f"Backbone no soportado: {original_backbone}")
+
     return model
 
 if __name__ == '__main__':
