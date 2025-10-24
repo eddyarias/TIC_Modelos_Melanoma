@@ -88,16 +88,6 @@ def validation_loop(model, device, data_loader, criterion):
 
 
 def main(args):
-    # Visdom Visualization
-    if args.visdom:
-        print('Initializing Visdom')
-        import visdom
-        from utils.linePlotter import VisdomLinePlotter
-        vis = visdom.Visdom()
-        plotter = VisdomLinePlotter()
-    else:
-        vis = None
-
     # Set image name
     if 'ip' in socket.gethostname():
         pc_name = 'AWS'
@@ -399,13 +389,6 @@ def main(args):
                            e, best_loss, best_epoch, train_loss_history, train_acc_history,
                            val_loss_history, val_acc_history, epochs, args, model_save_path_best)
 
-        # Visualize on Visdom
-        if args.visdom:
-            plotter.plot('value', 'training  loss ', figure_title, e, train_loss)
-            plotter.plot('value', 'validation loss', figure_title, e, val_loss)
-            plotter.plot('value', 'training  acc ', figure_title, e, train_acc)
-            plotter.plot('value', 'validation acc', figure_title, e, val_acc)
-
         # Plot loss
         fig, ax = plt.subplots(1,1, figsize=(8,5))
         ax.plot(epochs, train_loss_history, label='training loss')
@@ -493,16 +476,15 @@ if __name__ == '__main__':
     parser.add_argument('-lrf', '--lr_update_freq', default=0,              type=int,       help='Learning rate update frequency in epochs.')
     parser.add_argument('-da',  '--da_library',     default="torchvision",  type=str,       help='Data Augmentation library: < albumentations | torchvision >')
     parser.add_argument('-lvl', '--da_level',       default="heavy",        type=str,       help='Data Augmentation level: < light | medium | heavy >')
-    parser.add_argument('-csv', '--csv_metadata',                           type=str,       help='Ruta al CSV con metadatos para generar listas.')
-    parser.add_argument('-img', '--images_dir',                             type=str,       help='Directorio raíz de las imágenes referenciadas en el CSV.')
+    parser.add_argument('-csv', '--csv_metadata',   default="../DataTIC/bcn20000_metadata_2025-10-19.csv",             type=str,       help='Ruta al CSV con metadatos para generar listas.')
+    parser.add_argument('-img', '--images_dir',     default="../DataTIC/ISIC-images",                        type=str,       help='Directorio raíz de las imágenes referenciadas en el CSV.')
     parser.add_argument('-l',   '--label_col',      default='diagnosis_1',  type=str,       help='Nombre de la columna de la etiqueta en el CSV.')
     parser.add_argument('-id',  '--image_id_col',   default='isic_id',      type=str,       help='Columna que contiene el ID base de la imagen.')
-    parser.add_argument('-al',  '--allowed_labels',                         type=str,       help='Lista separada por comas de labels permitidos (opcional).')
+    parser.add_argument('-al',  '--allowed_labels', default="Benign,Malignant",              type=str,       help='Lista separada por comas de labels permitidos (opcional).')
     parser.add_argument('-vs',  '--val_split',      default=0.2,            type=float,     help='Proporción de validación al generar listas desde CSV.')
     parser.add_argument('-ts',  '--test_split',     default=0.0,            type=float,     help='Proporción de test al generar listas desde CSV.')
     parser.add_argument('-lim', '--limit',          default=0,              type=int,       help='Límite de imágenes a usar desde el CSV (0 = sin límite).')
     parser.add_argument('-res', '--resume',                                 type=str,       help='Ruta al checkpoint para reanudar entrenamiento.')
-    parser.add_argument('-vis', '--visdom',         action='store_true',                    help='Visualize training on visdom.')
     parser.add_argument('-tb',  '--tensorboard',    action='store_true',                    help='Log training metrics to TensorBoard.')
     args = parser.parse_args()
 
