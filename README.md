@@ -1,10 +1,17 @@
 # TIC_Modelos_Melanoma
-En este respositorio contiene los script de preprocesamiento, entrenamiento y evaluación de los modelos CNN y Transformer
+En este repositorio contiene los scripts de preprocesamiento, entrenamiento y evaluación de los modelos CNN y Transformer
 
+## Estructura del proyecto
 
-directorio baseCode: contiene el codigo basico para entrenamientos de redes neuronales y transformers
+**directorio baseCode**: contiene el código básico para entrenamientos de redes neuronales y transformers
+- `utils/csv_dataset_builder.py`: Utilidad para construir datasets desde archivos CSV
+- `utils/`: Módulos auxiliares (training, tensorboard, manual_stop, etc.)
+- `models/`: Definiciones de modelos (classification, siamese, etc.)
+- `dataloaders/`: Cargadores de datos y data augmentation
 
-directorio database: contine las etiquetas y los datos para entrenamiento, prueba y validación
+**directorio database**: contiene las etiquetas y los datos para entrenamiento, prueba y validación
+
+## Uso básico
 
 # ejecutar un entrenamiento
 python baseCode/train_classification.py \
@@ -47,3 +54,24 @@ python baseCode/train_classification.py \
 tensorboard --logdir checkpoints/nombre_del_modelo/
 # o para ver todos los modelos:
 tensorboard --logdir checkpoints/
+
+## Construcción de datasets desde CSV
+
+El sistema incluye una utilidad modular para construir datasets desde archivos CSV:
+
+```bash
+# Ejemplo independiente
+python baseCode/example_csv_builder.py
+
+# Uso directo en entrenamiento
+python baseCode/train_classification.py \
+  --csv_metadata datos.csv \
+  --images_dir imagenes/ \
+  --allowed_labels Benign,Malignant \
+  --val_split 0.1 \
+  --test_split 0.05 \
+  --limit 1000 \
+  -b resnet50 -e 10 -tb
+```
+
+Ver `baseCode/utils/README_csv_builder.md` para documentación completa.

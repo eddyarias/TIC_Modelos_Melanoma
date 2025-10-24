@@ -1,11 +1,11 @@
 import os
 import json
 import numpy as np
+import torch
+
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 from argparse import ArgumentParser as argparse
-
-import torch
-from torch.utils.data import DataLoader
 
 from models.classification import load_model
 from dataloaders.Image_Dataset import Image_Dataset

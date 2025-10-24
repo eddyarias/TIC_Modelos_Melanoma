@@ -5,18 +5,17 @@ import socket
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-import pandas as pd
 
 from tqdm import tqdm
 from datetime import datetime
 from torchsummary import summary
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter  # TensorBoard
-from sklearn.model_selection import train_test_split
 from argparse import ArgumentParser as argparse
 
 from utils.utils import write_json, read_list
 from utils.training import epoch_time, initialize_log
+from utils.csv_dataset_builder import build_dataset_from_csv, save_label_mapping
 from dataloaders.data_augmentation import data_aug_selector
 from utils.manual_stop import check_stop_training  # Para parada manual vía JSON
 from test_classification import test_model
@@ -155,74 +154,32 @@ def main(args):
     # Si se proporciona --csv_metadata se generarán train/validation/test automáticamente
     # =============================
     if getattr(args, 'csv_metadata', None):
-        print("\nGenerando listas desde CSV:")
-        if not os.path.isfile(args.csv_metadata):
-            raise FileNotFoundError(f"CSV no encontrado: {args.csv_metadata}")
-        df = pd.read_csv(args.csv_metadata)
-        label_col = args.label_col
-        if label_col not in df.columns:
-            raise ValueError(f"Columna '{label_col}' no encontrada en CSV")
-        # Filtrar labels permitidos si se definieron
-        if args.allowed_labels:
-            df = df[df[label_col].isin(args.allowed_labels.split(','))]
-        else:
-            # Por defecto usar sólo Benign/Malignant si existen
-            if set(['Benign','Malignant']).issubset(set(df[label_col].dropna().unique())):
-                df = df[df[label_col].isin(['Benign','Malignant'])]
-        # Limitar
-        if args.limit > 0:
-            df = df.head(args.limit)
-        # Generar filepath
-        if 'isic_id' in df.columns and args.image_id_col == 'isic_id':
-            df['filename'] = df[args.image_id_col].astype(str) + '.jpg'
-        else:
-            df['filename'] = df[args.image_id_col].astype(str)
-        df['filepath'] = df['filename'].apply(lambda x: os.path.join(args.images_dir, x))
-        # Filtrar por existencia
-        df = df[df['filepath'].apply(os.path.exists)]
-        if len(df) == 0:
-            raise ValueError("No se encontraron imágenes existentes tras el filtrado.")
-        # Map labels
-        unique_labels = sorted(df[label_col].dropna().unique())
-        label2idx = {l:i for i,l in enumerate(unique_labels)}
-        print(f"Labels detectados: {label2idx}")
-        df['label_idx'] = df[label_col].apply(lambda x: label2idx[x])
-        # Splits
-        test_split = max(0.0, min(0.9, args.test_split))
-        val_split = max(0.0, min(0.9, args.val_split))
-        if test_split + val_split >= 0.95:
-            raise ValueError("La suma de val_split y test_split es demasiado alta")
-        remaining_df = df
-        # Primero split test si corresponde
-        if test_split > 0:
-            remaining_df, test_df = train_test_split(remaining_df, test_size=test_split, random_state=42, stratify=remaining_df['label_idx'])
-        else:
-            test_df = pd.DataFrame(columns=remaining_df.columns)
-        # Split validation
-        if val_split > 0:
-            train_df, val_df = train_test_split(remaining_df, test_size=val_split, random_state=42, stratify=remaining_df['label_idx'])
-        else:
-            train_df = remaining_df
-            val_df = pd.DataFrame(columns=remaining_df.columns)
-        print(f"Split -> Train: {len(train_df)} | Val: {len(val_df)} | Test: {len(test_df)}")
-        # Escribir listas
-        def write_list(df_part, name):
-            list_path = os.path.join(lists_path, f"{name}.txt")
-            lines = [f"{row.filepath} {int(row.label_idx)}" for _, row in df_part.iterrows()]
-            with open(list_path, 'w') as f:
-                f.write('\n'.join(lines))
-            return list_path
-        train_list = write_list(train_df, 'train')
-        validation_list = write_list(val_df, 'validation') if len(val_df) else write_list(train_df.sample(min(1,len(train_df))), 'validation')  # fallback mínimo
-        test_list = write_list(test_df, 'test') if len(test_df) else write_list(train_df.sample(min(1,len(train_df))), 'test')
-        # Actualizar args.dataset a nueva ruta para consistencia
+        # Usar la utilidad para construir el dataset desde CSV
+        dataset_info = build_dataset_from_csv(
+            csv_metadata=args.csv_metadata,
+            images_dir=args.images_dir,
+            label_col=args.label_col,
+            image_id_col=args.image_id_col,
+            allowed_labels=args.allowed_labels,
+            val_split=args.val_split,
+            test_split=args.test_split,
+            limit=args.limit,
+            output_dir=lists_path,
+            verbose=True
+        )
+        
+        # Obtener rutas de las listas generadas
+        train_list = dataset_info['train_list']
+        validation_list = dataset_info['validation_list']
+        test_list = dataset_info['test_list']
+        
+        # Actualizar configuración
         args.dataset = lists_path
-        # Ajustar número de clases
-        args.classes = len(label2idx)
-        # Guardar mapping
+        args.classes = dataset_info['num_classes']
+        
+        # Guardar mapeo de etiquetas
         mapping_path = os.path.join(model_path, 'label_mapping.json')
-        write_json(label2idx, mapping_path)
-        print(f"Mapeo de labels guardado en {mapping_path}")
+        save_label_mapping(dataset_info['label_mapping'], mapping_path)
     else:
         # Uso tradicional de listas ya existentes
         train_list = os.path.join(args.dataset, 'train.txt')
@@ -476,7 +433,7 @@ def main(args):
         # Revisión de parada manual después de guardar el log/modelo
         try:
             if check_stop_training(control_file_path):
-                print(f"\n🛑 Parada manual solicitada. Deteniendo entrenamiento tras la época {e}.")
+                print(f"\nParada manual solicitada. Deteniendo entrenamiento tras la época {e}.")
                 log_dict["early_stop"] = True
                 log_dict["stop_epoch"] = e
                 write_json(log_dict, json_log_path)  # Actualizar log con información de parada
@@ -484,7 +441,7 @@ def main(args):
                     writer.add_text('Training/Status', f'Early stop at epoch {e}')
                 break
         except Exception as ex:
-            print(f"⚠️ No se pudo leer la bandera de parada: {ex}")
+            print(f"No se pudo leer la bandera de parada: {ex}")
 
 
     # Load best model
@@ -502,7 +459,7 @@ def main(args):
             # Formato viejo (solo state_dict)
             model.load_state_dict(checkpoint)
     except Exception as e:
-        print(f"⚠️ Error cargando el mejor modelo: {e}")
+        print(f"Error cargando el mejor modelo: {e}")
         print("Usando el modelo actual...")
     
     model.eval()
@@ -525,41 +482,28 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse()
-    parser.add_argument('-d', '--dataset', type=str,
-                        help='Path to the lists of the dataset.')
-    parser.add_argument('-b', '--backbone', type=str, default="vgg16",
-                        help='Conv-Net backbone.')
-    parser.add_argument('-w', '--weights', type=str, default="",
-                        help="Model's initial Weights: < none | imagenet | /path/to/weights/ >")
-    parser.add_argument('-sz', '--img_size', type=int, default=224,
-                        help='Image size.')
-    parser.add_argument('-e', '--epochs', type=int, default=2,
-                        help='Number of epochs.')
-    parser.add_argument('-bs', '--batch_size', type=int, default=32,
-                        help='Batch size.')
-    parser.add_argument('-j', '--jobs', type=int, default=8,
-                        help="Number of workers for dataloader's parallel jobs.")
-    parser.add_argument('-lr', '--learning_rate', type=float, default=0.0001,
-                        help='Learning Rate.')
-    parser.add_argument('-lrf', '--lr_update_freq', type=int, default=0,
-                        help='Learning rate update frequency in epochs.')
-    parser.add_argument('-da', '--da_library', type=str, default="torchvision",
-                        help='Data Augmentation library: < albumentations | torchvision >')
-    parser.add_argument('-lvl', '--da_level', type=str, default="heavy",
-                        help='Data Augmentation level: < light | medium | heavy >')
-    parser.add_argument('-vis', '--visdom', action='store_true',
-                        help='Visualize training on visdom.')
-    parser.add_argument('-tb', '--tensorboard', action='store_true',
-                        help='Log training metrics to TensorBoard.')
-    parser.add_argument('--csv_metadata', type=str, default='', help='Ruta al CSV con metadatos para generar listas.')
-    parser.add_argument('--images_dir', type=str, default='', help='Directorio raíz de las imágenes referenciadas en el CSV.')
-    parser.add_argument('--label_col', type=str, default='diagnosis_1', help='Nombre de la columna de la etiqueta en el CSV.')
-    parser.add_argument('--image_id_col', type=str, default='isic_id', help='Columna que contiene el ID base de la imagen.')
-    parser.add_argument('--allowed_labels', type=str, default='', help='Lista separada por comas de labels permitidos (opcional).')
-    parser.add_argument('--val_split', type=float, default=0.2, help='Proporción de validación al generar listas desde CSV.')
-    parser.add_argument('--test_split', type=float, default=0.0, help='Proporción de test al generar listas desde CSV.')
-    parser.add_argument('--limit', type=int, default=0, help='Límite de imágenes a usar desde el CSV (0 = sin límite).')
-    parser.add_argument('--resume', type=str, default='', help='Ruta al checkpoint para reanudar entrenamiento.')
+    parser.add_argument('-d',   '--dataset',                                type=str,       help='Path to the lists of the dataset.')
+    parser.add_argument('-b',   '--backbone',       default="vgg16",        type=str,       help='Conv-Net backbone.')
+    parser.add_argument('-w',   '--weights',                                type=str,       help="Model's initial Weights: < none | imagenet | /path/to/weights/ >")
+    parser.add_argument('-sz',  '--img_size',       default=224,            type=int,       help='Image size.')
+    parser.add_argument('-e',   '--epochs',         default=2,              type=int,       help='Number of epochs.')
+    parser.add_argument('-bs',  '--batch_size',     default=32,             type=int,       help='Batch size.')
+    parser.add_argument('-j',   '--jobs',           default=8,              type=int,       help="Number of workers for dataloader's parallel jobs.")
+    parser.add_argument('-lr',  '--learning_rate',  default=0.0001,         type=float,     help='Learning Rate.')
+    parser.add_argument('-lrf', '--lr_update_freq', default=0,              type=int,       help='Learning rate update frequency in epochs.')
+    parser.add_argument('-da',  '--da_library',     default="torchvision",  type=str,       help='Data Augmentation library: < albumentations | torchvision >')
+    parser.add_argument('-lvl', '--da_level',       default="heavy",        type=str,       help='Data Augmentation level: < light | medium | heavy >')
+    parser.add_argument('-csv', '--csv_metadata',                           type=str,       help='Ruta al CSV con metadatos para generar listas.')
+    parser.add_argument('-img', '--images_dir',                             type=str,       help='Directorio raíz de las imágenes referenciadas en el CSV.')
+    parser.add_argument('-l',   '--label_col',      default='diagnosis_1',  type=str,       help='Nombre de la columna de la etiqueta en el CSV.')
+    parser.add_argument('-id',  '--image_id_col',   default='isic_id',      type=str,       help='Columna que contiene el ID base de la imagen.')
+    parser.add_argument('-al',  '--allowed_labels',                         type=str,       help='Lista separada por comas de labels permitidos (opcional).')
+    parser.add_argument('-vs',  '--val_split',      default=0.2,            type=float,     help='Proporción de validación al generar listas desde CSV.')
+    parser.add_argument('-ts',  '--test_split',     default=0.0,            type=float,     help='Proporción de test al generar listas desde CSV.')
+    parser.add_argument('-lim', '--limit',          default=0,              type=int,       help='Límite de imágenes a usar desde el CSV (0 = sin límite).')
+    parser.add_argument('-res', '--resume',                                 type=str,       help='Ruta al checkpoint para reanudar entrenamiento.')
+    parser.add_argument('-vis', '--visdom',         action='store_true',                    help='Visualize training on visdom.')
+    parser.add_argument('-tb',  '--tensorboard',    action='store_true',                    help='Log training metrics to TensorBoard.')
     args = parser.parse_args()
 
     main(args)
