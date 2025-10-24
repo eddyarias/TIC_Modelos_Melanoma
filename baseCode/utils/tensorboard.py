@@ -1,6 +1,6 @@
 import subprocess
 
-def start_tensorboard(logdir='runs', port=6006):
+def start_tensorboard(logdir='checkpoints', port=6006):
     """Iniciar TensorBoard en un proceso separado"""
     try:
         cmd = f"tensorboard --logdir={logdir} --port={port} --bind_all"

@@ -10,19 +10,20 @@ from tqdm import tqdm
 from datetime import datetime
 from torchsummary import summary
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter  # TensorBoard
+from torch.utils.tensorboard import SummaryWriter
 from argparse import ArgumentParser as argparse
 
 from utils.utils import write_json, read_list
 from utils.training import epoch_time, initialize_log
+from utils.manual_stop import check_stop_training
 from utils.csv_dataset_builder import build_dataset_from_csv, save_label_mapping
 from dataloaders.data_augmentation import data_aug_selector
-from utils.manual_stop import check_stop_training  # Para parada manual vía JSON
 from test_classification import test_model
 from models.classification import load_model
 from dataloaders.Image_Dataset import Image_Dataset
 
 def compute_acc(gt, pred):
+    """Compute accuracy given ground truth tensor and predicted class indices tensor."""
     N = gt.shape[0]
     correct = gt == pred
     acc = correct.sum()/N
@@ -48,7 +49,7 @@ def save_checkpoint(model, optimizer, scheduler, epoch, best_loss, best_epoch,
     }
     torch.save(checkpoint, filepath)
 
-def train_loop(model, device, data_loader, criterion, optimizer):
+def train_loop(model, device, data_loader, criterion, optimizer, binary_sigmoid=False):
     acc = []
     losses = []
     model.train()
@@ -57,18 +58,27 @@ def train_loop(model, device, data_loader, criterion, optimizer):
         labels = labels.to(device)
 
         optimizer.zero_grad()
-        preds = model(images)
+        logits = model(images)
 
-        loss = criterion(preds, labels)
+        if binary_sigmoid:
+            # logits shape: (B,1); BCEWithLogits espera float y labels float
+            labels_float = labels.float().unsqueeze(1)  # (B,1)
+            loss = criterion(logits, labels_float)
+            probs = torch.sigmoid(logits)
+            preds_cls = (probs >= 0.5).long().squeeze(1)
+        else:
+            loss = criterion(logits, labels)
+            preds_cls = logits.argmax(1)
+
         loss.backward()
         optimizer.step()
 
-        losses.append(loss.detach().cpu().numpy())
-        acc.append(compute_acc(labels, preds.argmax(1)).cpu().numpy())
+        losses.append(loss.detach().cpu().item())
+        acc.append(compute_acc(labels, preds_cls).cpu().item())
 
-    return np.mean(losses), np.mean(acc)
+    return float(np.mean(losses)), float(np.mean(acc))
 
-def validation_loop(model, device, data_loader, criterion):
+def validation_loop(model, device, data_loader, criterion, binary_sigmoid=False):
     acc = []
     losses = []
     model.eval()
@@ -77,14 +87,20 @@ def validation_loop(model, device, data_loader, criterion):
             images = images.to(device)
             labels = labels.to(device)
 
-            preds = model(images)
+            logits = model(images)
+            if binary_sigmoid:
+                labels_float = labels.float().unsqueeze(1)
+                loss = criterion(logits, labels_float)
+                probs = torch.sigmoid(logits)
+                preds_cls = (probs >= 0.5).long().squeeze(1)
+            else:
+                loss = criterion(logits, labels)
+                preds_cls = logits.argmax(1)
 
-            loss = criterion(preds, labels)
+            losses.append(loss.detach().cpu().item())
+            acc.append(compute_acc(labels, preds_cls).cpu().item())
 
-            losses.append(loss.detach().cpu().numpy())
-            acc.append(compute_acc(labels, preds.argmax(1)).cpu().numpy())
-
-    return np.mean(losses), np.mean(acc)
+    return float(np.mean(losses)), float(np.mean(acc))
 
 
 def main(args):
@@ -111,38 +127,10 @@ def main(args):
     json_log_path = os.path.join(model_path, "log.json")
     loss_fig_path = os.path.join(model_path, "loss.svg")
 
-    # Print info
-    print(" ")
-    print("Model architecture:")
-    summary(model, input_size=(3, args.img_size, args.img_size))
-    print(" ")
-    print("Dataset: {}".format(args.dataset))
-    print("Train images: {:d}".format(len(train_dataset)))
-    print("Validation images: {:d}".format(len(validation_dataset)))
-    print("DA Library: {}".format(args.da_library))
-    print("DA Level: {}".format(args.da_level))
-    print(" ")
-    print("Model name: {}".format(args.model_name))
-    print("Backbone: {}".format(args.backbone))
-    print("Weights: {}".format(args.weights))
-    print("Image size: {}".format(img_size))
-    print("N classes: {}".format(args.classes))
-    print("Epochs: {:d}".format(args.epochs))
-    print("bs: {:d}".format(args.batch_size))
-    print("lr: {:f}".format(args.learning_rate))
-    print("lr update freq: {:d}".format(args.lr_update_freq))
-    print("jobs: {:d}".format(args.jobs))
-    if resuming_from_checkpoint:
-        print("Resuming from epoch: {:d}".format(start_epoch))
-    print(" ")
     figure_title = args.model_name
     lists_path = os.path.join(model_path, 'lists')
     os.makedirs(lists_path, exist_ok=True)
 
-    # =============================
-    # Construcción de listas desde CSV (opcional)
-    # Si se proporciona --csv_metadata se generarán train/validation/test automáticamente
-    # =============================
     if getattr(args, 'csv_metadata', None):
         # Usar la utilidad para construir el dataset desde CSV
         dataset_info = build_dataset_from_csv(
@@ -191,31 +179,10 @@ def main(args):
     if not getattr(args, 'classes', None):
         args.classes = train_dataset.n_classes
 
-    # Optimizer
-    criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate)
-    if args.lr_update_freq:
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_update_freq, gamma=0.1)
-    else:
-        scheduler = None
-
-    # Cargar estados del optimizador y scheduler si se está reanudando
-    if resuming_from_checkpoint and optimizer_state is not None:
-        print("Cargando estados del optimizador y scheduler...")
-        optimizer.load_state_dict(optimizer_state)
-        if scheduler and scheduler_state:
-            scheduler.load_state_dict(scheduler_state)
-        
-        # Actualizar nombre del modelo para evitar conflictos
-        timestamp = datetime.today().strftime('%Y%m%d_%H%M%S')
-        args.model_name = f'{args.backbone}_clas_resume_{timestamp}_{pc_name}'
-        model_path = f"./checkpoints/{args.model_name}/"
-        os.makedirs(model_path, exist_ok=True)
-        model_save_path_best = os.path.join(model_path, "best_model.pth")
-        model_save_path_last = os.path.join(model_path, "last_model.pth")
-        json_log_path = os.path.join(model_path, "log.json")
-        loss_fig_path = os.path.join(model_path, "loss.svg")
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_update_freq, gamma=0.1)
+    # Ajuste para modo binario con sigmoid: si se pide binary_sigmoid y hay 2 clases, usamos salida 1
+    effective_classes = args.classes
+    if args.binary_sigmoid and args.classes == 2:
+        effective_classes = 1
 
     # Resume from checkpoint if specified
     start_epoch = 1
@@ -229,7 +196,14 @@ def main(args):
     resuming_from_checkpoint = False
     optimizer_state = None
     scheduler_state = None
-    
+    val_acc_history = []
+    epochs = []
+    best_loss = 1000
+    best_epoch = 0
+    resuming_from_checkpoint = False
+    optimizer_state = None
+    scheduler_state = None
+
     if args.resume and args.resume not in ["", "None", None, "none"]:
         if os.path.isfile(args.resume):
             print(f"\nCargando checkpoint desde: {args.resume}")
@@ -248,7 +222,12 @@ def main(args):
                 # Sobrescribir parámetros críticos del checkpoint
                 args.backbone = original_config.get('backbone', args.backbone)
                 args.classes = original_config.get('classes', args.classes)
-                args.img_size = original_config.get('image_size', args.img_size)
+                img_size_from_config = original_config.get('image_size', args.img_size)
+                # Asegurar que img_size sea un entero
+                if isinstance(img_size_from_config, list):
+                    args.img_size = img_size_from_config[0]  # Tomar el primer elemento si es una lista
+                else:
+                    args.img_size = img_size_from_config
                 
                 print(f"✅ Configuración cargada desde checkpoint:")
                 print(f"   Backbone: {args.backbone}")
@@ -262,10 +241,15 @@ def main(args):
                     saved_args = checkpoint['args']
                     args.backbone = saved_args.get('backbone', args.backbone)
                     args.classes = saved_args.get('classes', args.classes)
-                    args.img_size = saved_args.get('img_size', args.img_size)
+                    img_size_from_checkpoint = saved_args.get('img_size', args.img_size)
+                    # Asegurar que img_size sea un entero
+                    if isinstance(img_size_from_checkpoint, list):
+                        args.img_size = img_size_from_checkpoint[0]
+                    else:
+                        args.img_size = img_size_from_checkpoint
             
             # Ahora cargar el modelo con la configuración correcta
-            model = load_model(args.backbone, args.weights, args.classes)
+            model = load_model(args.backbone, args.weights, effective_classes)
             model.to(device)
             
             # Cargar estado del modelo
@@ -302,13 +286,68 @@ def main(args):
     # Si no se está reanudando, crear modelo normalmente
     if not resuming_from_checkpoint:
         # Get pretrained model
-        model = load_model(args.backbone, args.weights, args.classes)
+        model = load_model(args.backbone, args.weights, effective_classes)
         model.to(device)
 
         # Load initial weights (not for resuming, only for pretrained weights)
         if args.weights not in ["", "None", None, "none", "imagenet"]:
             print(f"\nCargando pesos preentrenados desde: {args.weights}")
             model.load_state_dict(torch.load(args.weights, map_location=device))
+
+    # Print model and training info
+    print(" ")
+    print("Model architecture:")
+    summary(model, input_size=(3, args.img_size, args.img_size))
+    print(" ")
+    print("Dataset: {}".format(args.dataset))
+    print("Train images: {:d}".format(len(train_dataset)))
+    print("Validation images: {:d}".format(len(validation_dataset)))
+    print("DA Library: {}".format(args.da_library))
+    print("DA Level: {}".format(args.da_level))
+    print(" ")
+    print("Model name: {}".format(args.model_name))
+    print("Backbone: {}".format(args.backbone))
+    print("Weights: {}".format(args.weights))
+    print("Image size: {}".format(img_size))
+    print("N classes: {} (effective: {})".format(args.classes, effective_classes))
+    if args.binary_sigmoid and effective_classes == 1:
+        print("Modo binario con BCEWithLogitsLoss + sigmoid (threshold 0.5)")
+    print("Epochs: {:d}".format(args.epochs))
+    print("bs: {:d}".format(args.batch_size))
+    print("lr: {:f}".format(args.learning_rate))
+    print("lr update freq: {:d}".format(args.lr_update_freq))
+    print("jobs: {:d}".format(args.jobs))
+    if resuming_from_checkpoint:
+        print("Resuming from epoch: {:d}".format(start_epoch))
+    print(" ")
+
+    # Optimizer and criterion
+    if args.binary_sigmoid and effective_classes == 1:
+        criterion = torch.nn.BCEWithLogitsLoss()
+    else:
+        criterion = torch.nn.CrossEntropyLoss()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-4)
+    if args.lr_update_freq:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_update_freq, gamma=0.5)
+    else:
+        scheduler = None
+
+    # Cargar estados del optimizador y scheduler si se está reanudando
+    if resuming_from_checkpoint and optimizer_state is not None:
+        print("Cargando estados del optimizador y scheduler...")
+        optimizer.load_state_dict(optimizer_state)
+        if scheduler and scheduler_state:
+            scheduler.load_state_dict(scheduler_state)
+        
+        # Actualizar nombre del modelo para evitar conflictos
+        timestamp = datetime.today().strftime('%Y%m%d_%H%M%S')
+        args.model_name = f'{args.backbone}_clas_resume_{timestamp}_{pc_name}'
+        model_path = f"./checkpoints/{args.model_name}/"
+        os.makedirs(model_path, exist_ok=True)
+        model_save_path_best = os.path.join(model_path, "best_model.pth")
+        model_save_path_last = os.path.join(model_path, "last_model.pth")
+        json_log_path = os.path.join(model_path, "log.json")
+        loss_fig_path = os.path.join(model_path, "loss.svg")
 
     # TensorBoard writer
     if getattr(args, 'tensorboard', False):
@@ -338,10 +377,10 @@ def main(args):
         t0 = time.time()
 
         # Train loop
-        train_loss, train_acc = train_loop(model, device, train_loader, criterion, optimizer)
+        train_loss, train_acc = train_loop(model, device, train_loader, criterion, optimizer, binary_sigmoid=(args.binary_sigmoid and effective_classes==1))
 
         # Validation loop
-        val_loss, val_acc = validation_loop(model, device, validation_loader, criterion)
+        val_loss, val_acc = validation_loop(model, device, validation_loader, criterion, binary_sigmoid=(args.binary_sigmoid and effective_classes==1))
 
         # Update scheduler
         if args.lr_update_freq:
@@ -407,6 +446,8 @@ def main(args):
         # Update log_dict
         log_dict["epoch"] = e
         log_dict["val_loss"] = float(val_loss)
+        log_dict["binary_sigmoid"] = bool(args.binary_sigmoid and effective_classes==1)
+        log_dict["effective_classes"] = int(effective_classes)
         log_dict["best_epoch"] = best_epoch
         log_dict["best_val_loss"] = float(best_loss)
         log_dict["Training_Time"] = epoch_time(T0, T1)
@@ -468,7 +509,7 @@ if __name__ == '__main__':
     parser.add_argument('-d',   '--dataset',                                type=str,       help='Path to the lists of the dataset.')
     parser.add_argument('-b',   '--backbone',       default="vgg16",        type=str,       help='Conv-Net backbone.')
     parser.add_argument('-w',   '--weights',                                type=str,       help="Model's initial Weights: < none | imagenet | /path/to/weights/ >")
-    parser.add_argument('-sz',  '--img_size',       default=224,            type=int,       help='Image size.')
+    parser.add_argument('-sz',  '--img_size',       default=112,            type=int,       help='Image size.')
     parser.add_argument('-e',   '--epochs',         default=2,              type=int,       help='Number of epochs.')
     parser.add_argument('-bs',  '--batch_size',     default=32,             type=int,       help='Batch size.')
     parser.add_argument('-j',   '--jobs',           default=8,              type=int,       help="Number of workers for dataloader's parallel jobs.")
@@ -481,11 +522,12 @@ if __name__ == '__main__':
     parser.add_argument('-l',   '--label_col',      default='diagnosis_1',  type=str,       help='Nombre de la columna de la etiqueta en el CSV.')
     parser.add_argument('-id',  '--image_id_col',   default='isic_id',      type=str,       help='Columna que contiene el ID base de la imagen.')
     parser.add_argument('-al',  '--allowed_labels', default="Benign,Malignant",              type=str,       help='Lista separada por comas de labels permitidos (opcional).')
-    parser.add_argument('-vs',  '--val_split',      default=0.2,            type=float,     help='Proporción de validación al generar listas desde CSV.')
-    parser.add_argument('-ts',  '--test_split',     default=0.0,            type=float,     help='Proporción de test al generar listas desde CSV.')
+    parser.add_argument('-vs',  '--val_split',      default=0.1,            type=float,     help='Proporción de validación al generar listas desde CSV.')
+    parser.add_argument('-ts',  '--test_split',     default=0.05,            type=float,     help='Proporción de test al generar listas desde CSV.')
     parser.add_argument('-lim', '--limit',          default=0,              type=int,       help='Límite de imágenes a usar desde el CSV (0 = sin límite).')
     parser.add_argument('-res', '--resume',                                 type=str,       help='Ruta al checkpoint para reanudar entrenamiento.')
     parser.add_argument('-tb',  '--tensorboard',    action='store_true',                    help='Log training metrics to TensorBoard.')
+    parser.add_argument('--binary_sigmoid', action='store_true', help='Usar salida de 1 logit + BCEWithLogitsLoss para clasificación binaria (2 clases).')
     args = parser.parse_args()
 
     main(args)

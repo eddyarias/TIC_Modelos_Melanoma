@@ -17,13 +17,13 @@ En este repositorio contiene los scripts de preprocesamiento, entrenamiento y ev
 python baseCode/train_classification.py \
   -vs 0.1 \
   -ts 0.05 \
-  -lim 20000 \
-  -b convnext_large \
+  -lim 2000 \
+  -b convnext_tiny \
   -e 25 \
-  -bs 16 \
+  -bs 64 \
   -w imagenet \
   -lvl heavy \
-  -lr 0.001 \
+  -lr 0.0001 \
   -tb
 
 # comenzar desde un checkpoint
@@ -32,7 +32,7 @@ python baseCode/train_classification.py \
 -ts 0.05 \
 -lim 20000 \
 -e 100 \
--bs 16 \
+-bs 64 \
 -w imagenet \
 -lvl heavy \
 -lr 0.001 \

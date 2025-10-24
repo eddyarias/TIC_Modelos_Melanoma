@@ -7,8 +7,6 @@ def epoch_time(t0, t1):
 
 
 def initialize_log(args, type='classification'):
-    img_size=(args.img_size,args.img_size)
-
     log_dict = dict()
     log_dict["dataset"] = args.dataset
     log_dict["training_images"] = 0
@@ -20,7 +18,7 @@ def initialize_log(args, type='classification'):
     log_dict["model_type"] = type
     if type=='siamese': log_dict["margin"] = args.margin
     log_dict["weights"] = args.weights
-    log_dict["image_size"] = img_size
+    log_dict["image_size"] = args.img_size  # Guardar como entero en lugar de tupla
     log_dict["classes"] = args.classes
     if type=='siamese': log_dict["embedding_size"] = args.embedding_size
     log_dict["epochs"] = args.epochs

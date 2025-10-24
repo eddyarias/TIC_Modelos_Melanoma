@@ -9,11 +9,20 @@ class Image_Dataset(Dataset):
     def __init__(self, list_path, args=None, img_size=None, transform=None, limit=None):
         # Get inputs
         if transform:
-            self.img_size = (args.img_size,args.img_size)
+            self.img_size = (args.img_size, args.img_size)
             self.da_library = args.da_library
             self.transform = transform
         else:
-            self.img_size = img_size
+            # Handle both int and tuple formats for img_size
+            if isinstance(img_size, (int, float)):
+                self.img_size = (int(img_size), int(img_size))
+            elif isinstance(img_size, (list, tuple)) and len(img_size) >= 2:
+                self.img_size = (int(img_size[0]), int(img_size[1]))
+            elif isinstance(img_size, (list, tuple)) and len(img_size) == 1:
+                self.img_size = (int(img_size[0]), int(img_size[0]))
+            else:
+                # Default fallback
+                self.img_size = (224, 224)
             self.da_library = None
             self.transform = None
 

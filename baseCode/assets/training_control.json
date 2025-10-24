@@ -1,5 +1,5 @@
 {
-    "stop_training": false,
+    "stop_training": true,
     "created_at": "2025-10-22",
     "description": "Archivo de control para detener el entrenamiento. Cambiar 'stop_training' a true para parar en la siguiente \u00e9poca."
 }

@@ -21,14 +21,16 @@ def test_model(test_list, model_folder, batch_size, jobs, model=None, k=5):
     backbone = cfg_dict["backbone"]
     image_size = cfg_dict["image_size"]
     classes = cfg_dict["classes"]
+    binary_sigmoid = bool(cfg_dict.get("binary_sigmoid", False))
+    effective_classes = int(cfg_dict.get("effective_classes", classes))
 
     # Check GPU availability
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("\nWorking with: {}".format(device))
 
     if model is None:
-        # Load model
-        model = load_model(backbone, weights, classes)
+        # Load model (usar effective_classes para reconstruir arquitectura correcta)
+        model = load_model(backbone, weights, effective_classes)
         model.to(device)
 
         # Load weights - handle both checkpoint format and old state_dict format
@@ -53,24 +55,43 @@ def test_model(test_list, model_folder, batch_size, jobs, model=None, k=5):
 
     # Make predictions
     model.eval()
-    scores = np.zeros((len(dataset),classes), dtype=float)
+    if binary_sigmoid and effective_classes == 1:
+        scores = np.zeros((len(dataset), 1), dtype=float)
+    else:
+        scores = np.zeros((len(dataset), classes), dtype=float)
     labels = np.zeros(len(dataset), dtype=int)
     with torch.no_grad():
         for image, label, index in tqdm(dataloader):
-            preds = model(image.to(device)).detach().cpu().clone()
-            for i in range(label.shape[0]):
-                idx = index[i].item()
-                scores[idx] = preds[i].numpy()
-                labels[idx] = label[i].item()
+            logits = model(image.to(device)).detach().cpu().clone()
+            if binary_sigmoid and effective_classes == 1:
+                probs = torch.sigmoid(logits)
+                for i in range(label.shape[0]):
+                    idx = index[i].item()
+                    scores[idx,0] = probs[i].item()
+                    labels[idx] = label[i].item()
+            else:
+                for i in range(label.shape[0]):
+                    idx = index[i].item()
+                    scores[idx] = logits[i].numpy()
+                    labels[idx] = label[i].item()
 
     # Normalize scores
-    lim_l, lim_u = analyze_scores(scores, labels)
-    norm_scores = normalize_scores(scores, lim_l, lim_u, k)
+    if binary_sigmoid and effective_classes == 1:
+        # Para binario, podemos construir matriz 2-col para análisis de normalización si se requiere
+        # Convertir prob a [p0, p1] = [1-p, p]
+        probs = scores[:,0]
+        two_col = np.vstack([1.0 - probs, probs]).T
+        lim_l, lim_u = analyze_scores(two_col, labels)
+        norm_scores = normalize_scores(two_col, lim_l, lim_u, k)
+    else:
+        lim_l, lim_u = analyze_scores(scores, labels)
+        norm_scores = normalize_scores(scores, lim_l, lim_u, k)
 
     # Save scores
     scores_path = os.path.join(model_folder, 'scores.npz')
     np.savez(scores_path, scores=scores, labels=labels, dataset=test_list, images=dataset.images,
-             norm_scores=norm_scores, normalization=[lim_l, lim_u, k] )
+             norm_scores=norm_scores, normalization=[lim_l, lim_u, k],
+             binary_sigmoid=binary_sigmoid, effective_classes=effective_classes )
     print('\nScores saved at: \n{}\n'.format(scores_path))
     
     # Save normalization in the config file
@@ -78,7 +99,11 @@ def test_model(test_list, model_folder, batch_size, jobs, model=None, k=5):
     with open(config, 'w') as write_file:
         json.dump(cfg_dict, write_file, indent=4)
 
-    return labels, np.argmax(scores,axis=1)
+    if binary_sigmoid and effective_classes == 1:
+        preds = (scores[:,0] >= 0.5).astype(int)
+        return labels, preds
+    else:
+        return labels, np.argmax(scores,axis=1)
 
 
 if __name__ == '__main__':
