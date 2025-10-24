@@ -1,4 +1,3 @@
-/checkpoints
 *.pth
 */__pycache__
 *.pyc

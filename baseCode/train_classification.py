@@ -509,7 +509,7 @@ if __name__ == '__main__':
     parser.add_argument('-d',   '--dataset',                                type=str,       help='Path to the lists of the dataset.')
     parser.add_argument('-b',   '--backbone',       default="vgg16",        type=str,       help='Conv-Net backbone.')
     parser.add_argument('-w',   '--weights',                                type=str,       help="Model's initial Weights: < none | imagenet | /path/to/weights/ >")
-    parser.add_argument('-sz',  '--img_size',       default=112,            type=int,       help='Image size.')
+    parser.add_argument('-sz',  '--img_size',       default=224,            type=int,       help='Image size.')
     parser.add_argument('-e',   '--epochs',         default=2,              type=int,       help='Number of epochs.')
     parser.add_argument('-bs',  '--batch_size',     default=32,             type=int,       help='Batch size.')
     parser.add_argument('-j',   '--jobs',           default=8,              type=int,       help="Number of workers for dataloader's parallel jobs.")
