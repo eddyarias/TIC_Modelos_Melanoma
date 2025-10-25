@@ -5,7 +5,6 @@ import numpy as np
 from PIL import Image
 from torchvision.transforms import v2
 from models.classification import load_model
-from models.siamese import siamese_embeddings
 from argparse import ArgumentParser as argparse
 
 parser = argparse()
@@ -19,7 +18,7 @@ config = os.path.join(args.model_folder, 'log.json')
 cfg_dict = json.load(open(config))
 backbone = cfg_dict["backbone"]
 model_type = cfg_dict["model_type"]
-W, H = cfg_dict["image_size"]
+W, H = cfg_dict["image_size"], cfg_dict["image_size"]
 NUM_CLASSES = cfg_dict["classes"]
 RESOLUTION =  (W, H)
 NUM_CHANNELS = 3
@@ -27,14 +26,7 @@ NUM_CHANNELS = 3
 # Use cpu
 device = 'cpu'
 
-# Load model
-if model_type == 'classification':
-    model = load_model(backbone, weights, NUM_CLASSES)
-elif model_type == 'siamese':
-    model = siamese_embeddings(backbone, weights)
-else:
-    print('Model type "{}" not supported'.format(model_type))
-    exit()
+model = load_model(backbone, weights, NUM_CLASSES)
 model.to(device)
 model.eval()
 
