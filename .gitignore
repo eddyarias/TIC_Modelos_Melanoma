@@ -3,6 +3,7 @@
 *.pyc
 /runs
 checkpoints1/
-*.onx
+*.onnx
 *.xml
 *.bin
+resnet50_clas_20251025_104429_MSI

@@ -118,4 +118,6 @@ if __name__ == '__main__':
                         help="Number of workers for dataloader's parallel jobs.")
     args = parser.parse_args()
 
-    dists, labels = test_model(args.test_list, args.model_folder, args.batch_size, args.jobs)
+    labels, preds = test_model(args.test_list, args.model_folder, args.batch_size, args.jobs)
+    acc = np.sum(labels == preds) / len(preds)
+    print(f"Test set accuracy: {acc:.4f}")
