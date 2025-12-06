@@ -90,7 +90,11 @@ def test_model_openvino(test_list, batch_size, num_workers, model_xml_path, mode
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('-tl', '--test_list', required=True, type=str, help='Ruta a la lista de test.')
+        # Por defecto usar el test.txt de lists/
+        default_lists_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lists'))
+        default_test_list = os.path.join(default_lists_dir, 'test.txt')
+        parser.add_argument('-tl', '--test_list', type=str, default=default_test_list,
+                            help='Ruta a la lista de test (default: lists/test.txt).')
     parser.add_argument('-bs', '--batch_size', default=1, type=int, help='Batch size.')
     parser.add_argument('-j', '--jobs', default=1, type=int, help='Num workers.')
     parser.add_argument('-xml', '--model_xml', required=True, type=str, help='Ruta al modelo .xml de OpenVINO.')

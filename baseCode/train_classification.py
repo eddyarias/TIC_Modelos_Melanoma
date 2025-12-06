@@ -16,7 +16,6 @@ from argparse import ArgumentParser as argparse
 from utils.utils import write_json, read_list
 from utils.training import epoch_time, initialize_log
 from utils.manual_stop import check_stop_training
-from utils.csv_dataset_builder import build_dataset_from_csv, save_label_mapping
 from dataloaders.data_augmentation import data_aug_selector
 from test_classification import test_model
 from models.classification import load_model
@@ -131,38 +130,16 @@ def main(args):
     lists_path = os.path.join(model_path, 'lists')
     os.makedirs(lists_path, exist_ok=True)
 
-    if getattr(args, 'csv_metadata', None):
-        # Usar la utilidad para construir el dataset desde CSV
-        dataset_info = build_dataset_from_csv(
-            csv_metadata=args.csv_metadata,
-            images_dir=args.images_dir,
-            label_col=args.label_col,
-            image_id_col=args.image_id_col,
-            allowed_labels=args.allowed_labels,
-            val_split=args.val_split,
-            test_split=args.test_split,
-            limit=args.limit,
-            output_dir=lists_path,
-            verbose=True
-        )
-        
-        # Obtener rutas de las listas generadas
-        train_list = dataset_info['train_list']
-        validation_list = dataset_info['validation_list']
-        test_list = dataset_info['test_list']
-        
-        # Actualizar configuración
-        args.dataset = lists_path
-        args.classes = dataset_info['num_classes']
-        
-        # Guardar mapeo de etiquetas
-        mapping_path = os.path.join(model_path, 'label_mapping.json')
-        save_label_mapping(dataset_info['label_mapping'], mapping_path)
-    else:
-        # Uso tradicional de listas ya existentes
-        train_list = os.path.join(args.dataset, 'train.txt')
-        validation_list = os.path.join(args.dataset, 'validation.txt')
-        test_list = os.path.join(args.dataset, 'test.txt')
+    lists_dir = os.path.abspath('lists')
+    train_list = os.path.join(lists_dir, 'train.txt')
+    validation_list = os.path.join(lists_dir, 'validation.txt')
+    test_list = os.path.join(lists_dir, 'test.txt')
+    label_mapping_path = os.path.join(lists_dir, 'label_mapping.json')
+    stats_path = os.path.join(lists_dir, 'stats.json')
+    # Cargar número de clases desde label_mapping.json
+    with open(label_mapping_path, 'r') as f:
+        label_mapping = json.load(f)
+    args.classes = len(label_mapping)
 
     # Transformaciones de entrenamiento (Data Augmentation)
     transform = data_aug_selector(args)
@@ -506,25 +483,17 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse()
-    parser.add_argument('-d',   '--dataset',                                type=str,       help='Path to the lists of the dataset.')
-    parser.add_argument('-b',   '--backbone',       default="vgg16",        type=str,       help='Conv-Net backbone.')
-    parser.add_argument('-w',   '--weights',                                type=str,       help="Model's initial Weights: < none | imagenet | /path/to/weights/ >")
-    parser.add_argument('-sz',  '--img_size',       default=224,            type=int,       help='Image size.')
-    parser.add_argument('-e',   '--epochs',         default=2,              type=int,       help='Number of epochs.')
-    parser.add_argument('-bs',  '--batch_size',     default=32,             type=int,       help='Batch size.')
+    parser.add_argument('-d',   '--dataset',        default="lists",        type=str,       help='Path to the lists of the dataset.')
+    parser.add_argument('-b',   '--backbone',       default="swin_v2_t",    type=str,       help='Conv-Net backbone.')
+    parser.add_argument('-w',   '--weights',        default="imagenet",     type=str,       help="Model's initial Weights: < none | imagenet | /path/to/weights/ >")
+    parser.add_argument('-sz',  '--img_size',       default=320,            type=int,       help='Image size.')
+    parser.add_argument('-e',   '--epochs',         default=10,             type=int,       help='Number of epochs.')
+    parser.add_argument('-bs',  '--batch_size',     default=24,             type=int,       help='Batch size.')
     parser.add_argument('-j',   '--jobs',           default=8,              type=int,       help="Number of workers for dataloader's parallel jobs.")
     parser.add_argument('-lr',  '--learning_rate',  default=0.0001,         type=float,     help='Learning Rate.')
     parser.add_argument('-lrf', '--lr_update_freq', default=0,              type=int,       help='Learning rate update frequency in epochs.')
     parser.add_argument('-da',  '--da_library',     default="torchvision",  type=str,       help='Data Augmentation library: < albumentations | torchvision >')
     parser.add_argument('-lvl', '--da_level',       default="heavy",        type=str,       help='Data Augmentation level: < light | medium | heavy >')
-    parser.add_argument('-csv', '--csv_metadata',   default="../DataTIC/bcn20000_metadata_2025-10-19.csv",             type=str,       help='Ruta al CSV con metadatos para generar listas.')
-    parser.add_argument('-img', '--images_dir',     default="../DataTIC/ISIC-images",                        type=str,       help='Directorio raíz de las imágenes referenciadas en el CSV.')
-    parser.add_argument('-l',   '--label_col',      default='diagnosis_1',  type=str,       help='Nombre de la columna de la etiqueta en el CSV.')
-    parser.add_argument('-id',  '--image_id_col',   default='isic_id',      type=str,       help='Columna que contiene el ID base de la imagen.')
-    parser.add_argument('-al',  '--allowed_labels', default="Benign,Malignant",              type=str,       help='Lista separada por comas de labels permitidos (opcional).')
-    parser.add_argument('-vs',  '--val_split',      default=0.1,            type=float,     help='Proporción de validación al generar listas desde CSV.')
-    parser.add_argument('-ts',  '--test_split',     default=0.05,            type=float,     help='Proporción de test al generar listas desde CSV.')
-    parser.add_argument('-lim', '--limit',          default=0,              type=int,       help='Límite de imágenes a usar desde el CSV (0 = sin límite).')
     parser.add_argument('-res', '--resume',                                 type=str,       help='Ruta al checkpoint para reanudar entrenamiento.')
     parser.add_argument('-tb',  '--tensorboard',    action='store_true',                    help='Log training metrics to TensorBoard.')
     parser.add_argument('--binary_sigmoid', action='store_true', help='Usar salida de 1 logit + BCEWithLogitsLoss para clasificación binaria (2 clases).')

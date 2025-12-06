@@ -108,8 +108,11 @@ def test_model(test_list, model_folder, batch_size, jobs, model=None, k=5):
 
 if __name__ == '__main__':
     parser = argparse()
-    parser.add_argument('-l', '--test_list', type=str, required=True,
-                        help='Path to the test list.')
+    # Por defecto usar el test.txt de lists/
+    default_lists_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'lists'))
+    default_test_list = os.path.join(default_lists_dir, 'test.txt')
+    parser.add_argument('-l', '--test_list', type=str, default=default_test_list,
+                        help='Path to the test list (default: lists/test.txt).')
     parser.add_argument('-m', '--model_folder', type=str, required=True,
                         help="Path to model folder.")
     parser.add_argument('-bs', '--batch_size', type=int, default=24,
