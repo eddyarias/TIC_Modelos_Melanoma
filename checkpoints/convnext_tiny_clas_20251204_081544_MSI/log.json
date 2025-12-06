@@ -24,5 +24,10 @@
     "best_epoch": 5,
     "best_val_loss": 0.15687416543215355,
     "Training_Time": "Time: 2h 25m 8.8s",
-    "Avg_Epoch_Time": "Time: 0h 24m 5.9s"
+    "Avg_Epoch_Time": "Time: 0h 24m 5.9s",
+    "normalization": [
+        0.023672133684158325,
+        0.9977215910330415,
+        5
+    ]
 }
